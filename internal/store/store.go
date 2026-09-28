@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,8 @@ type ShortURL struct {
 
 type storeErr string
 
+// define a type for store errors that implements the error interface
+
 func (e storeErr) Error() string {
 	return string(e)
 }
@@ -27,15 +30,17 @@ const (
 )
 
 type Store struct {
-	dir string
+	dir    string
+	logger *slog.Logger
 }
 
-func New(dir string) (*Store, error) {
+func New(dir string, logger *slog.Logger) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	return &Store{
-		dir: dir,
+		dir:    dir,
+		logger: logger,
 	}, nil
 }
 
@@ -47,6 +52,7 @@ func (s *Store) Create(_ context.Context, long string) (string, error) {
 		path := filepath.Join(s.dir, short)
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
+			s.logger.Info(fmt.Sprintf("failed to create file %s: %v", path, err))
 			if os.IsExist(err) {
 				continue
 			}
@@ -55,10 +61,12 @@ func (s *Store) Create(_ context.Context, long string) (string, error) {
 		defer f.Close()
 		_, err = f.WriteString(long)
 		if err != nil {
+			s.logger.Info(fmt.Sprintf("failed to write to file %s: %v", path, err))
 			return "", err
 		}
 		return short, nil
 	}
+	s.logger.Info(fmt.Sprintf("failed to generate unique short code after %d retries", retries))
 	return "", errors.New("failed to generate unique short code")
 }
 
@@ -70,6 +78,7 @@ func (s *Store) List(ctx context.Context) ([]ShortURL, error) {
 	var urls []ShortURL
 	for e := range ch {
 		if e.Err != nil {
+			s.logger.Info(fmt.Sprintf("error while walking store: %v", e.Err))
 			return urls, e.Err
 		}
 		urls = append(urls, e)
@@ -84,12 +93,14 @@ func (s *Store) walk(ctx context.Context, ch chan<- ShortURL) {
 	defer close(ch)
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
+		s.logger.Info(fmt.Sprintf("failed to read directory %s: %v", s.dir, err))
 		return
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
 			long, err := s.Lookup(ctx, e.Name())
 			if err != nil {
+				s.logger.Info(fmt.Sprintf("failed to lookup %s: %v", e.Name(), err))
 				ch <- ShortURL{Err: fmt.Errorf("read %s: %w", filepath.Join(s.dir, e.Name()), err)}
 				continue
 			}
@@ -99,14 +110,15 @@ func (s *Store) walk(ctx context.Context, ch chan<- ShortURL) {
 }
 
 func (s *Store) Lookup(_ context.Context, short string) (string, error) {
-	short = strings.ToUpper(short)
-	shortcodeFilepath := filepath.Join(s.dir, short)
+	short = strings.ToUpper(short)                   // normalize short code to uppercase
+	shortcodeFilepath := filepath.Join(s.dir, short) // construct the full path to the file corresponding to the short code
 	data, err := os.ReadFile(shortcodeFilepath)
 	if errors.Is(err, os.ErrNotExist) {
+		s.logger.Info(fmt.Sprintf("short code %s not found in store", short))
 		return "", ErrNotFound
 	}
 	if err != nil {
-		fmt.Printf("failed to read %s: %v\n", shortcodeFilepath, err)
+		s.logger.Info(fmt.Sprintf("failed to read %s: %v", shortcodeFilepath, err))
 		return "", err
 	}
 	return string(data), nil
