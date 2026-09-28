@@ -55,7 +55,7 @@ func (s *server) start() error {
 	if err != nil {
 		return err
 	}
-	s.logger.Info(fmt.Sprintf("Linko is running on http://localhost:%d", ln.Addr().(*net.TCPAddr).Port))
+	s.logger.Debug(fmt.Sprintf("Linko is running on http://localhost:%d", ln.Addr().(*net.TCPAddr).Port))
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -63,7 +63,7 @@ func (s *server) start() error {
 }
 
 func (s *server) shutdown(ctx context.Context) error {
-	s.logger.Info("Linko is shutting down")
+	s.logger.Debug("Linko is shutting down")
 	return s.httpServer.Shutdown(ctx)
 }
 
@@ -86,7 +86,12 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			// Hands over the request to the next handler in the chain, which is mux (as defined in srv).
 
-			logger.Info(fmt.Sprintf("Served request: %s %s", r.Method, r.URL.Path))
+			logger.Info(
+				"Served request",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("client_ip", r.RemoteAddr),
+			)
 		})
 	}
 }
