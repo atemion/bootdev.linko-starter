@@ -86,11 +86,12 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			// Hands over the request to the next handler in the chain, which is mux (as defined in srv).
 
-			logger.Info(
-				"Served request",
-				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
-				slog.String("client_ip", r.RemoteAddr),
+			// logger.Info(fmt.Sprintf("Served request: %s %s", r.Method, r.URL.Path))
+
+			logger.Info("Served request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"client_ip", r.RemoteAddr,
 			)
 		})
 	}
